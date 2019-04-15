@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::String;
@@ -38,7 +39,13 @@ impl Arguments {
 
 pub fn run(args: Arguments) {
 	let container_id = uuid();
-	contain(args.command, container_id);
+	create_container_root(
+		args.image_name,
+		args.image_dir,
+		container_id.clone(),
+		args.container_dir,
+	);
+	contain(args.command, container_id.clone());
 }
 
 fn contain(command: String, container_id: String) {
@@ -49,4 +56,34 @@ fn contain(command: String, container_id: String) {
 	let ecode = child.wait().expect("Failed to wait on child");
 	println!("The PID is: {}", child.id());
 	println!("The exit code is: {}", ecode);
+}
+
+fn get_image_path(image_name: String, image_dir: String, image_suffix: String) -> String {
+	let image = format!("{}.{}", image_name, image_suffix);
+	Path::new(&image_dir)
+		.join(image)
+		.to_str()
+		.unwrap()
+		.to_owned()
+}
+
+fn get_container_path(container_id: String, container_dir: String, subdir_name: String) -> String {
+	Path::new(&container_dir)
+		.join(container_id)
+		.join(subdir_name)
+		.to_str()
+		.unwrap()
+		.to_owned()
+}
+
+fn create_container_root(
+	image_name: String,
+	image_dir: String,
+	container_id: String,
+	container_dir: String,
+) {
+	let image_suffix = "tar".to_owned();
+	let image_path = get_image_path(image_name, image_dir, image_suffix);
+	let subdir_name = "rootfs".to_owned();
+	let container_root = get_container_path(container_id, container_dir, subdir_name);
 }
