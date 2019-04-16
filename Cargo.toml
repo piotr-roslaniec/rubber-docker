@@ -8,3 +8,4 @@ edition = "2018"
 clap = "~2.33"
 uuid = { version = "0.7", features = ["v4"] }
 tar = "0.4.22"
+nix = "0.13.0"

@@ -20,7 +20,7 @@ pub struct Arguments {
 	image_name: String,
 	image_dir: String,
 	container_dir: String,
-	command: String,
+	command: Vec<String>,
 }
 
 impl Arguments {
@@ -28,7 +28,7 @@ impl Arguments {
 		image_name: String,
 		image_dir: String,
 		container_dir: String,
-		command: String,
+		command: Vec<String>,
 	) -> Arguments {
 		Arguments {
 			image_name,
@@ -50,9 +50,9 @@ pub fn run(args: Arguments) {
 	contain(args.command, container_id.clone());
 }
 
-fn contain(command: String, container_id: String) {
-	let mut child = Command::new(command)
-		.arg(".")
+fn contain(command: Vec<String>, container_id: String) {
+	let mut child = Command::new(&command[0])
+		.args(&command[1..])
 		.spawn()
 		.expect("Failed to execute child");
 	let ecode = child.wait().expect("Failed to wait on child");
