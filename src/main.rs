@@ -26,8 +26,8 @@ fn main() {
     };
     let home_dir = home_dir.to_str().unwrap();
     let default_image = "ubuntu";
-    let default_image_dir = format!("{}/rubber-docker/img_dir", home_dir);
-    let default_container_dir = format!("{}/rubber-docker/cnt_dir", home_dir);
+    let default_image_dir = format!("{}/rubber-docker/images", home_dir);
+    let default_container_dir = format!("{}/rubber-docker/containers", home_dir);
     let default_cmd = "/bin/ls";
 
     let mut image_name: String;

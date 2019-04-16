@@ -1,8 +1,10 @@
+use std::fs::{create_dir_all, File};
 use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::String;
 use uuid::Uuid;
+use tar::Archive;
 
 fn uuid() -> String {
 	let mut buffer = Uuid::encode_buffer();
@@ -76,14 +78,39 @@ fn get_container_path(container_id: String, container_dir: String, subdir_name: 
 		.to_owned()
 }
 
+fn untar(image_path: String, container_root: String) -> Result<(), std::io::Error> {
+	let tar = File::open(image_path)?;
+	let mut archive = Archive::new(tar);
+	archive.unpack(container_root)?;
+	Ok(())
+}
+
 fn create_container_root(
 	image_name: String,
 	image_dir: String,
 	container_id: String,
 	container_dir: String,
-) {
+) -> String {
 	let image_suffix = "tar".to_owned();
 	let image_path = get_image_path(image_name, image_dir, image_suffix);
 	let subdir_name = "rootfs".to_owned();
 	let container_root = get_container_path(container_id, container_dir, subdir_name);
+
+	if !Path::new(&image_path).exists() {
+		panic!(format!("Image path does not exist: {}", image_path))
+	}
+	if !Path::new(&image_path).exists() {
+		match create_dir_all(&container_root) {
+			Ok(r) => r,
+			Err(_) => panic!(format!(
+				"Failed to create container root directory: {}",
+				container_root
+			)),
+		};
+	}
+	match untar(image_path, container_root.clone()) {
+		Ok(r) => r,
+		Err(_) => panic!("Failed to untar the image")
+	}
+	return container_root;
 }
