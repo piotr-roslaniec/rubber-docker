@@ -1,19 +1,11 @@
+use nix::mount::{mount, MsFlags};
 use std::fs::{create_dir_all, File};
 use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::String;
-use uuid::Uuid;
 use tar::Archive;
-
-fn uuid() -> String {
-	let mut buffer = Uuid::encode_buffer();
-	let uuid = Uuid::new_v4().to_simple().encode_lower(&mut buffer);
-	match String::from_str(uuid) {
-		Ok(s) => s,
-		Err(_) => panic!("Failed to parse uuid str"),
-	}
-}
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -41,16 +33,17 @@ impl Arguments {
 
 pub fn run(args: Arguments) {
 	let container_id = uuid();
-	create_container_root(
+	let container_root = create_container_root(
 		args.image_name,
 		args.image_dir,
 		container_id.clone(),
 		args.container_dir,
 	);
-	contain(args.command, container_id.clone());
+	contain(args.command, container_id.clone(), container_root.clone());
 }
 
-fn contain(command: Vec<String>, container_id: String) {
+fn contain(command: Vec<String>, container_id: String, container_root: String) {
+	create_mounts(container_root.clone());
 	let mut child = Command::new(&command[0])
 		.args(&command[1..])
 		.spawn()
@@ -76,6 +69,15 @@ fn get_container_path(container_id: String, container_dir: String, subdir_name: 
 		.to_str()
 		.unwrap()
 		.to_owned()
+}
+
+fn uuid() -> String {
+	let mut buffer = Uuid::encode_buffer();
+	let uuid = Uuid::new_v4().to_simple().encode_lower(&mut buffer);
+	match String::from_str(uuid) {
+		Ok(s) => s,
+		Err(_) => panic!("Failed to parse uuid str"),
+	}
 }
 
 fn untar(image_path: String, container_root: String) -> Result<(), std::io::Error> {
@@ -110,7 +112,49 @@ fn create_container_root(
 	}
 	match untar(image_path, container_root.clone()) {
 		Ok(r) => r,
-		Err(_) => panic!("Failed to untar the image")
+		Err(_) => panic!("Failed to untar the image"),
 	}
 	return container_root;
+}
+
+fn create_mounts(container_root: String) {
+	let root = Path::new(&container_root);
+	let no_flags = MsFlags::from_bits(0).unwrap();
+	let no_data: Option<&Path> = None;
+	let mut tmpfs_flags = MsFlags::from_bits(0).unwrap();
+	// Ignore suid and sgid bits
+	tmpfs_flags.toggle(MsFlags::MS_NOSUID);
+	// Always update last access time when files are accessed
+	tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
+
+	match mount(
+		Some("proc"),
+		&root.join("proc"),
+		Some("proc"),
+		no_flags,
+		no_data,
+	) {
+		Ok(r) => r,
+		Err(_) => panic!("Failed to create mount from host /proc to guest /proc"),
+	}
+	match mount(
+		Some("sysfs"),
+		&root.join("sys"),
+		Some("sysfs"),
+		no_flags,
+		no_data,
+	) {
+		Ok(r) => r,
+		Err(_) => panic!("Failed to create mount from host /sysfs to guest /sys"),
+	}
+	match mount(
+		Some("tmpfs"),
+		&root.join("dev"),
+		Some("tmpfs"),
+		tmpfs_flags,
+		no_data,
+	) {
+		Ok(r) => r,
+		Err(_) => panic!("Failed to create mount from host /tmpfs to guest /dev"),
+	}
 }
