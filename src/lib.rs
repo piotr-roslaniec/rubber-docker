@@ -1,4 +1,5 @@
 use nix::mount::{mount, MsFlags};
+use nix::unistd::{fork, ForkResult};
 use std::fs::{create_dir_all, File};
 use std::path::Path;
 use std::process::Command;
@@ -33,19 +34,31 @@ impl Arguments {
 
 pub fn run(args: Arguments) {
 	let container_id = uuid();
+	println!("Creating new container with id: {}", container_id);
+
+	match fork() {
+		Ok(ForkResult::Parent { child, .. }) => println!("Spawned new child with pid: {}", child),
+		Ok(ForkResult::Child) => {
+			println!("Running in a new child process");
+			contain(args, container_id.clone());
+		}
+		Err(_) => println!("Fork failed"),
+	}
+}
+
+fn contain(args: Arguments, container_id: String) {
 	let container_root = create_container_root(
 		args.image_name,
 		args.image_dir,
 		container_id.clone(),
 		args.container_dir,
 	);
-	contain(args.command, container_id.clone(), container_root.clone());
-}
+	println!("Created new root fs for container: {}", container_root);
 
-fn contain(command: Vec<String>, container_id: String, container_root: String) {
 	create_mounts(container_root.clone());
-	let mut child = Command::new(&command[0])
-		.args(&command[1..])
+
+	let mut child = Command::new(&args.command[0])
+		.args(&args.command[1..])
 		.spawn()
 		.expect("Failed to execute child");
 	let ecode = child.wait().expect("Failed to wait on child");
