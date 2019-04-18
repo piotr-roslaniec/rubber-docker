@@ -1,4 +1,5 @@
 #!/bin/bash
 
-docker pull ubuntu:14.04
-docker save ubuntu:14.04 > ~/rubber-docker/images/ubuntu.tar
+mkdir -p images
+docker pull busybox
+docker save busybox > images/busybox.tar

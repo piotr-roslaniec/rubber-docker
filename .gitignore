@@ -1,4 +1,6 @@
 /target
 **/*.rs.bk
-vm/*
-!vm/Vagrantfile
+.vagrant
+rubber-docker
+images
+containers

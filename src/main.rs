@@ -32,7 +32,7 @@ fn main() {
         None => panic!("Failed to get home directory path"),
     };
     let home_dir = home_dir.to_str().unwrap();
-    let default_image = "ubuntu";
+    let default_image = "busybox";
     let default_image_dir = format!("{}/rubber-docker/images", home_dir);
     let default_container_dir = format!("{}/rubber-docker/containers", home_dir);
 
