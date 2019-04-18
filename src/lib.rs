@@ -1,5 +1,6 @@
 use nix::mount::{mount, MsFlags};
 use nix::unistd::{fork, ForkResult};
+use std::fs::create_dir;
 use std::fs::{create_dir_all, File};
 use std::path::Path;
 use std::process::Command;
@@ -114,60 +115,39 @@ fn create_container_root(
 	if !Path::new(&image_path).exists() {
 		panic!(format!("Image path does not exist: {}", image_path))
 	}
-	if !Path::new(&image_path).exists() {
-		match create_dir_all(&container_root) {
-			Ok(r) => r,
-			Err(_) => panic!(format!(
-				"Failed to create container root directory: {}",
-				container_root
-			)),
-		};
-	}
-	match untar(image_path, container_root.clone()) {
-		Ok(r) => r,
-		Err(_) => panic!("Failed to untar the image"),
-	}
+	create_dir_all(&container_root).unwrap();
+	untar(image_path, container_root.clone()).unwrap();
 	return container_root;
 }
 
 fn create_mounts(container_root: String) {
 	let root = Path::new(&container_root);
+	let proc_guest = root.join("proc");
+	let sys_guest = root.join("sys");
+	let dev_guest = root.join("dev");
+	create_dir(&proc_guest).unwrap();
+	create_dir(&sys_guest).unwrap();
+	create_dir(&dev_guest).unwrap();
+
 	let no_flags = MsFlags::from_bits(0).unwrap();
-	let no_data: Option<&Path> = None;
+	let no_data: Option<&str> = Some("mode=755");
 	let mut tmpfs_flags = MsFlags::from_bits(0).unwrap();
 	// Ignore suid and sgid bits
 	tmpfs_flags.toggle(MsFlags::MS_NOSUID);
 	// Always update last access time when files are accessed
 	tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
 
-	match mount(
-		Some("proc"),
-		&root.join("proc"),
-		Some("proc"),
-		no_flags,
-		no_data,
-	) {
-		Ok(r) => r,
-		Err(_) => panic!("Failed to create mount from host /proc to guest /proc"),
-	}
-	match mount(
-		Some("sysfs"),
-		&root.join("sys"),
-		Some("sysfs"),
-		no_flags,
-		no_data,
-	) {
-		Ok(r) => r,
-		Err(_) => panic!("Failed to create mount from host /sysfs to guest /sys"),
-	}
-	match mount(
-		Some("tmpfs"),
-		&root.join("dev"),
-		Some("tmpfs"),
-		tmpfs_flags,
-		no_data,
-	) {
-		Ok(r) => r,
-		Err(_) => panic!("Failed to create mount from host /tmpfs to guest /dev"),
-	}
+	mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).expect(&format!(
+		"Failed to create mount from host /proc to guest {:?}",
+		&proc_guest
+	));
+	mount(Some("sysfs"), &sys_guest, Some("sysfs"), no_flags, no_data).expect(&format!(
+		"Failed to create mount from host /sysfs to guest {:?}",
+		&sys_guest
+	));
+	mount(Some("tmpfs"), &dev_guest, Some("tmpfs"), tmpfs_flags, no_data)
+	.expect(&format!(
+		"Failed to create mount from host /tmpfs to guest {:?}",
+		&dev_guest
+	));
 }
