@@ -16,6 +16,8 @@ Vagrant.configure("2") do |config|
     curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly -y
   SHELL
 
+  config.vm.provision "file", source: "~/rdocker/images/ubuntu.tar", destination: "/tmp/rdocker/images/ubuntu.tar"
+
   config.vm.synced_folder '.', '/home/vagrant/rubber-docker'
 
   config.vm.provider "virtualbox" do |vb|

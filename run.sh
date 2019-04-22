@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo build && sudo ./target/debug/rubber-docker run --command /bin/ls /
+cargo build && sudo ./target/debug/rubber-docker run --command /usr/bin/whoami
