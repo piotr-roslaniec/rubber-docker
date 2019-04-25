@@ -1,7 +1,8 @@
 use nix::mount::{mount, MsFlags};
+use nix::sched::{unshare, CloneFlags};
+use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::unistd::{chdir, chroot, fork, ForkResult};
 use std::char::from_digit;
-use std::fs::create_dir;
 use std::fs::{create_dir_all, File};
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -50,21 +51,32 @@ pub fn run(args: Arguments) {
 }
 
 fn contain(args: Arguments, container_id: String) {
-    let container_root = create_container_root(
+    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
+    println!("Unshared the mount namespace");
+
+    let none: Option<&str> = None;
+    let mut ns_flags = MsFlags::from_bits(0).unwrap();
+    // Mount as private namespace to prevent host namespace pollution
+    ns_flags.toggle(MsFlags::MS_PRIVATE);
+    // Bind mount directories recursively
+    ns_flags.toggle(MsFlags::MS_REC);
+    mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
+
+    let new_root = create_container_root(
         args.image_name,
         args.image_dir,
         container_id.clone(),
         args.container_dir,
     );
-    println!("Created new root fs for container: {}", container_root);
+    println!("Created new root fs for container: {}", new_root);
 
-    create_mounts(container_root.clone());
+    create_mounts(new_root.clone());
     println!("Created mounts");
 
-    add_devices(container_root.clone());
+    add_devices(new_root.clone());
     println!("Added devices");
 
-    chroot(Path::new(&container_root.clone())).expect("Failed to chroot");
+    chroot(Path::new(&new_root.clone())).expect("Failed to chroot");
     println!("chroot-ed into container root");
 
     chdir(Path::new("/")).expect("Failed to chdir");
@@ -171,7 +183,9 @@ fn create_mounts(container_root: String) {
 }
 
 fn add_devices(container_root: String) {
-    let devpts_path = Path::new(&container_root).join("dev").join("pts");
+    // Add basic devices
+    let dev_path = Path::new(&container_root).join("dev");
+    let devpts_path = dev_path.join("pts");
     if !devpts_path.exists() {
         create_dir_all(&devpts_path).expect("Failed to create /dev/pts directory");
     }
@@ -189,7 +203,6 @@ fn add_devices(container_root: String) {
         "Failed to create mount from host /devpts to guest {}",
         &devpts_path.to_str().unwrap()
     ));
-
     for (i, device) in vec!["stdin", "stdout", "stderr"].iter().enumerate() {
         let mut dev_num = String::from("");
         dev_num.insert(0, from_digit(i as u32, 10).unwrap());
@@ -200,5 +213,27 @@ fn add_devices(container_root: String) {
             source.to_str().unwrap(),
             dest.to_str().unwrap()
         ));
+    }
+
+    // Add extra devices
+    let devices = vec![
+        ("null", SFlag::S_IFCHR, 1, 3),
+        ("zero", SFlag::S_IFCHR, 1, 5),
+        ("random", SFlag::S_IFCHR, 1, 8),
+        ("urandom", SFlag::S_IFCHR, 1, 9),
+        ("console", SFlag::S_IFCHR, 136, 3),
+        ("null", SFlag::S_IFCHR, 1, 3),
+    ];
+
+    for (device, kind, major, minor) in devices {
+        let device_path = dev_path.join(device);
+        // TODO: validate whether those node devices are properly mounted
+        if !device_path.exists() {
+            let device_path = device_path.to_str().unwrap();
+            let perm = Mode::from_bits(0666).unwrap();
+            let device = makedev(major, minor);
+            mknod(device_path, kind, perm, device)
+                .expect(&format!("Failed to mknod device: {}", device_path));
+        }
     }
 }

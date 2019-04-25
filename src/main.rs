@@ -12,7 +12,7 @@ fn main() {
         .subcommand(
             SubCommand::with_name("run")
                 .about("run an image")
-                .arg_from_usage("-i, --image-name=[PATH] 'Image to unpack'")
+                .arg_from_usage("--image-name=[PATH] 'Image to unpack'")
                 .arg_from_usage("--image-dir=[PATH] 'Directory to unpack image'")
                 .arg_from_usage("--container-dir=[PATH] 'Containers directory'")
                 .arg(
@@ -20,6 +20,7 @@ fn main() {
                         .long("command")
                         .short("c")
                         .required(true)
+                        .allow_hyphen_values(true)
                         .min_values(1)
                         .help("Command to be executed"),
                 ),
