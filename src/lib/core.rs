@@ -5,12 +5,12 @@ use std::path::Path;
 use std::process::Command;
 use std::string::String;
 
-use nix::mount::{mount, MsFlags};
+use nix::mount::{MntFlags, mount, MsFlags, umount2};
 use nix::sched::{CloneFlags, unshare};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::unistd::chdir;
+use nix::unistd::pivot_root;
 
-use crate::lib::sys::pivot_root;
 use crate::lib::util;
 
 pub fn contain(
@@ -29,7 +29,10 @@ pub fn contain(
     ns_flags.toggle(MsFlags::MS_PRIVATE);
     // Bind mount directories recursively
     ns_flags.toggle(MsFlags::MS_REC);
-    mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
+    let old_root = Path::new("/");
+
+    mount(none, old_root, none, ns_flags, none)
+        .expect("Failed to mount at new root");
 
     let new_root = create_container_root(
         image_name,
@@ -45,12 +48,16 @@ pub fn contain(
     add_devices(new_root.clone());
     println!("Added devices");
 
-    pivot_root(Path::new(&new_root.clone()), Path::new("/"))
+    pivot_root(Path::new(&new_root.clone()), old_root)
         .expect("Failed to pivot_root");
     println!("pivot_root-ed into container root");
 
-    chdir(Path::new("/")).expect("Failed to chdir");
+    chdir(old_root).expect("Failed to chdir");
     println!("chdir-ed into container root");
+
+    // Perform a lazy unmount
+    umount2(old_root, MntFlags::MNT_DETACH)
+        .expect("Failed to unmount old root");
 
     execute(command);
 }
@@ -93,12 +100,10 @@ fn create_container_root(
     let image_path = get_image_path(image_name, image_dir, image_suffix);
     let subdir_name = "rootfs".to_owned();
     let container_root = get_container_path(container_id, container_dir, subdir_name);
-
     if !Path::new(&image_path).exists() {
         panic!(format!("Image path does not exist: {}", image_path))
     }
     create_dir_all(&container_root).unwrap();
-    util::untar(image_path, container_root.clone());
     return container_root;
 }
 
@@ -183,7 +188,6 @@ fn add_devices(container_root: String) {
 
     for (device, kind, major, minor) in devices {
         let device_path = dev_path.join(device);
-        // TODO: validate whether those node devices are properly mounted
         if !device_path.exists() {
             let device_path = device_path.to_str().unwrap();
             let perm = Mode::from_bits(0666).unwrap();
