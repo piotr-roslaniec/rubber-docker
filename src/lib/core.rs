@@ -8,8 +8,9 @@ use std::string::String;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{CloneFlags, unshare};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
-use nix::unistd::{chdir, chroot};
+use nix::unistd::chdir;
 
+use crate::lib::sys::pivot_root;
 use crate::lib::util;
 
 pub fn contain(
@@ -44,12 +45,17 @@ pub fn contain(
     add_devices(new_root.clone());
     println!("Added devices");
 
-    chroot(Path::new(&new_root.clone())).expect("Failed to chroot");
-    println!("chroot-ed into container root");
+    pivot_root(Path::new(&new_root.clone()), Path::new("/"))
+        .expect("Failed to pivot_root");
+    println!("pivot_root-ed into container root");
 
     chdir(Path::new("/")).expect("Failed to chdir");
     println!("chdir-ed into container root");
 
+    execute(command);
+}
+
+fn execute(command: Vec<String>) {
     let mut child = Command::new(&command[0])
         .args(&command[1..])
         .spawn()
