@@ -1,6 +1,5 @@
 /target
-**/*.rs.bk
 .vagrant
 images
-containers
 /.idea/
+*.log

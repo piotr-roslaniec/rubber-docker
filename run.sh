@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo build && sudo ./target/debug/rubber-docker run --command /bin/ls -lh /
+cargo build && sudo RUST_BACKTRACE=1 ./target/debug/rubber-docker run --command /bin/ls -lh /
