@@ -13,7 +13,7 @@ pub fn uuid() -> String {
     }
 }
 
-pub fn untar(image_path: String, container_root: String) {
+pub fn untar(image_path: String, dest: String) {
     let tar = File::open(image_path).expect("Failed to access image file");
     let mut archive = Archive::new(tar);
     archive.set_preserve_permissions(true);
@@ -24,7 +24,7 @@ pub fn untar(image_path: String, container_root: String) {
         // tar archive may contain devices
         // filter them out
         if entry_type != EntryType::Char && entry_type != EntryType::Block {
-            file.unpack_in(&container_root)
+            file.unpack_in(&dest)
                 .expect("Failed to unpack file from tar archive");
         }
     }

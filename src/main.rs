@@ -36,19 +36,17 @@ fn main() {
     let default_container_dir = "/tmp/rdocker/containers";
 
     if let Some(matches) = matches.subcommand_matches("run") {
-        let image_name = String::from_str(matches.value_of("image-name")
-            .unwrap_or(default_image))
+        let image_name = String::from_str(matches.value_of("image-name").unwrap_or(default_image))
             .expect("Failed to parse str");
         let image_dir =
-            String::from_str(matches.value_of("image-dir")
-                .unwrap_or(&default_image_dir))
+            String::from_str(matches.value_of("image-dir").unwrap_or(&default_image_dir))
                 .expect("Failed to parse str");
         let container_dir = String::from_str(
             matches
                 .value_of("container-dir")
                 .unwrap_or(&default_container_dir),
         )
-            .expect("Failed to parse str");
+        .expect("Failed to parse str");
         let command: Vec<_> = matches
             .values_of("command")
             .unwrap()

@@ -27,7 +27,6 @@ impl Arguments {
     }
 }
 
-
 pub fn run(args: Arguments) {
     let container_id = util::uuid();
     println!("Creating new container with id: {}", container_id);
