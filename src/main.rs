@@ -47,11 +47,7 @@ fn main() {
                 .unwrap_or(&default_container_dir),
         )
         .expect("Failed to parse str");
-        let command: Vec<_> = matches
-            .values_of("command")
-            .unwrap()
-            .map(|s| s.to_string())
-            .collect();
+        let command: Vec<&str> = matches.values_of("command").unwrap().collect();
         let args = cli::Arguments::new(image_name, image_dir, container_dir, command);
         cli::run(args);
     }

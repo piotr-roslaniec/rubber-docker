@@ -2,30 +2,26 @@ use std::char::from_digit;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
-use std::process::Command;
-use std::process::ExitStatus;
 use std::string::String;
 
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
-use nix::unistd::chdir;
-use nix::unistd::pivot_root;
+use nix::unistd::{chdir, chroot, pivot_root, sethostname};
 
 use crate::lib::cli;
 use crate::lib::util;
 
 #[derive(Debug)]
-pub struct Container {
+pub struct Container<'a> {
     image_name: String,
     image_dir: String,
     container_dir: String,
-    command: Vec<String>,
+    command: Vec<&'a str>,
     container_id: String,
-
 }
 
-impl Container {
+impl<'a> Container<'a> {
     pub fn new(args: cli::Arguments) -> Container {
         Container {
             image_name: args.image_name,
@@ -36,54 +32,133 @@ impl Container {
         }
     }
 
-    pub fn get_container_id(&self) -> &String {
-        &self.container_dir
-    }
-
     pub fn contain(&self) {
-        // Unshare the namespaces from the parent.
-        // CLONE_NEWNS will initialize child with new mount namespace
-        // with a copy of the namespace of the parent.
-        unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
+        println!("Unshare namespace");
+        unshare_namespace();
 
-        let none: Option<&str> = None;
-        let mut ns_flags = MsFlags::from_bits(0).unwrap();
-        // Mount as private namespace to prevent host namespace pollution
-        ns_flags.toggle(MsFlags::MS_PRIVATE);
-        // Bind mount directories recursively
-        ns_flags.toggle(MsFlags::MS_REC);
-        mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
+        println!("Set hostname");
+        set_hostname(self.container_id.clone());
 
+        println!("Mount bind root");
+        mount_bind_root();
+
+        println!("Create container root fs");
         let container_rootfs = create_container_rootfs(
             self.container_id.clone(),
             self.container_dir.clone(),
             self.image_name.clone(),
             self.image_dir.clone(),
         );
+
+        println!("Create mounts");
         create_mounts(container_rootfs.clone());
-        add_devices(container_rootfs.clone());
 
-        let old_root = Path::new(&container_rootfs).join("old-root");
-        create_dir_all(old_root).expect("Failed to create old-root directory");
-        pivot_root(Path::new(&container_rootfs.clone()), Path::new("/"))
-            .expect("Failed to pivot_root");
+        println!("Change root fs with chroot");
+        change_root(container_rootfs.clone());
 
-        chdir(Path::new("/")).expect("Failed to chdir");
+        println!("Rearrange the mount namespace with pivot_root");
+        pivot_root_fs(container_rootfs.clone());
 
-        // Perform a lazy unmount
-        umount2(Path::new("/old-root"), MntFlags::MNT_DETACH).expect("Failed to unmount old root");
-        remove_dir_all(Path::new("/old-root")).expect("Failed to remove old root");
+        println!("Change directory to new root");
+        change_dir("/");
 
-        execute(self.command.clone());
+        println!("Unmount old root fs");
+        umount_old_fs();
+
+        println!("Execute command");
+        println!("{}", util::execute(self.command.clone()));
     }
 }
 
-fn execute(command: Vec<String>) -> ExitStatus {
-    let mut child = Command::new(&command[0])
-        .args(&command[1..])
-        .spawn()
-        .expect("Failed to execute child command");
-    return child.wait().expect("Failed to wait on child command");
+fn unshare_namespace() {
+    // Unshare the namespaces from the parent.pause program execution
+    // CLONE_NEWNS will initialize child with new mount namespace
+    // with a copy of the namespace of the parent.
+    util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
+    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
+    util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
+}
+
+fn set_hostname(hostname: String) {
+    // The UTS namespace allows per-container hostnames.
+    // Set the hostname to be the container ID.
+    util::print_debug("Hostname before", util::execute(vec!["hostname"]));
+    sethostname(hostname).expect("Failed to set hostname");
+    util::print_debug("Hostname after", util::execute(vec!["hostname"]));
+}
+
+fn mount_bind_root() {
+    // Mount / as a private namespace to prevent host namespace pollution
+    // Bind mount directories recursively
+    let none: Option<&str> = None;
+    let ns_flags = MsFlags::MS_PRIVATE | MsFlags::MS_REC;
+    mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
+}
+
+fn change_root(container_rootfs: String) {
+    util::print_debug("/dev before", util::execute(vec!["ls", "-lh", "/dev"]));
+    chroot(Path::new(&container_rootfs.clone())).expect("Failed to chroot");
+    util::print_debug("/dev after", util::execute(vec!["ls", "-lh", "/dev"]));
+}
+
+fn umount_old_fs() {
+    // Perform a lazy unmount
+    let old_root = Path::new("/old_root");
+    umount2(old_root, MntFlags::MNT_DETACH).expect("Failed to unmount old root");
+    remove_dir_all(old_root).expect("Failed to remove old root");
+}
+
+fn pivot_root_fs(new_root: String) {
+    let old_root = Path::new(&new_root).join("old_root");
+    create_dir_all(&old_root).expect("Failed to create old_root directory");
+    pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap())
+        .expect("Failed to pivot_root");
+}
+
+fn change_dir(new_dir: &str) {
+    util::print_debug("Current dir before", util::execute(vec!["pwd"]));
+    chdir(Path::new(new_dir)).expect("Failed to chdir");
+    util::print_debug("Current dir after", util::execute(vec!["pwd"]));
+}
+
+fn create_mounts(container_rootfs: String) {
+    util::print_debug("Mounts before", util::execute(vec!["findmnt", "-l"]));
+
+    let root = Path::new(&container_rootfs);
+    let proc_guest = root.join("proc");
+    let sys_guest = root.join("sys");
+    let dev_guest = root.join("dev");
+
+    let no_flags = MsFlags::from_bits(0).unwrap();
+    let no_data: Option<&str> = None;
+    let mode_755: Option<&str> = Some("mode=755");
+    let mut tmpfs_flags = MsFlags::from_bits(0).unwrap();
+    // Ignore suid and sgid bits
+    tmpfs_flags.toggle(MsFlags::MS_NOSUID);
+    // Always update last access time when files are accessed
+    tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
+
+    mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).expect(&format!(
+        "Failed to create mount to target {}",
+        &proc_guest.to_str().unwrap()
+    ));
+    mount(Some("sysfs"), &sys_guest, Some("sysfs"), no_flags, no_data).expect(&format!(
+        "Failed to create mount to target {}",
+        &sys_guest.to_str().unwrap()
+    ));
+    mount(
+        Some("tmpfs"),
+        &dev_guest,
+        Some("tmpfs"),
+        tmpfs_flags,
+        mode_755,
+    )
+    .expect(&format!(
+        "Failed to create mount to target {}",
+        &dev_guest.to_str().unwrap()
+    ));
+    add_devices(container_rootfs.clone());
+    util::print_debug("Mounts after", util::execute(vec!["findmnt", "-l"]));
 }
 
 fn get_image_path(image_name: String, image_dir: String) -> String {
@@ -126,6 +201,17 @@ fn create_container_rootfs(
     image_name: String,
     image_dir: String,
 ) -> String {
+    // Create container root filesystem as overlay CoW filesystem
+    util::print_debug(
+        "Container dir before:",
+        util::execute(vec![
+            "tree",
+            "-L",
+            "2",
+            "-d",
+            &format!("{}/{}", &container_dir, &container_id),
+        ]),
+    );
     // Create image root
     // Image root is "lowerdir" (read-only)
     let image_root = create_image_root(image_name.clone(), image_dir.clone());
@@ -174,47 +260,21 @@ fn create_container_rootfs(
         overlay_paths,
     )
     .expect(&format!(
-        "Failed to create mount from /tmpfs to {}",
+        "Failed to create mount to target {}",
         &container_rootfs
     ));
-
+    util::print_debug(
+        "Container dir after:",
+        util::execute(vec![
+            "tree",
+            "-d",
+            "-L",
+            "2",
+            "-d",
+            &format!("{}/{}", &container_dir, &container_id),
+        ]),
+    );
     return container_rootfs;
-}
-
-fn create_mounts(container_rootfs: String) {
-    let root = Path::new(&container_rootfs);
-    let proc_guest = root.join("proc");
-    let sys_guest = root.join("sys");
-    let dev_guest = root.join("dev");
-
-    let no_flags = MsFlags::from_bits(0).unwrap();
-    let no_data: Option<&str> = None;
-    let mode_755: Option<&str> = Some("mode=755");
-    let mut tmpfs_flags = MsFlags::from_bits(0).unwrap();
-    // Ignore suid and sgid bits
-    tmpfs_flags.toggle(MsFlags::MS_NOSUID);
-    // Always update last access time when files are accessed
-    tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
-
-    mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).expect(&format!(
-        "Failed to create mount from host /proc to guest {}",
-        &proc_guest.to_str().unwrap()
-    ));
-    mount(Some("sysfs"), &sys_guest, Some("sysfs"), no_flags, no_data).expect(&format!(
-        "Failed to create mount from host /sysfs to guest {}",
-        &sys_guest.to_str().unwrap()
-    ));
-    mount(
-        Some("tmpfs"),
-        &dev_guest,
-        Some("tmpfs"),
-        tmpfs_flags,
-        mode_755,
-    )
-    .expect(&format!(
-        "Failed to create mount from host /tmpfs to guest {}",
-        &dev_guest.to_str().unwrap()
-    ));
 }
 
 fn add_devices(container_rootfs: String) {
@@ -234,7 +294,7 @@ fn add_devices(container_rootfs: String) {
         no_data,
     )
     .expect(&format!(
-        "Failed to create mount from host /devpts to guest {}",
+        "Failed to create mount to target {}",
         &devpts_path.to_str().unwrap()
     ));
     for (i, device) in vec!["stdin", "stdout", "stderr"].iter().enumerate() {

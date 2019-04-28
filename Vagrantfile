@@ -14,6 +14,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "shell", privileged: false, inline: <<-SHELL
     curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly -y
+    sudo apt install -y tree
   SHELL
 
   config.vm.provision "file", source: "~/rdocker/images/ubuntu.tar", destination: "/tmp/rdocker/images/ubuntu.tar"
