@@ -1,13 +1,12 @@
+use nix::mount::{mount, umount2, MntFlags, MsFlags};
+use nix::sched::{unshare, CloneFlags};
+use nix::sys::stat::{makedev, mknod, Mode, SFlag};
+use nix::unistd::{chdir, pivot_root, sethostname};
 use std::char::from_digit;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::string::String;
-
-use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::sched::{unshare, CloneFlags};
-use nix::sys::stat::{makedev, mknod, Mode, SFlag};
-use nix::unistd::{chdir, chroot, pivot_root, sethostname};
 
 use crate::lib::cli;
 use crate::lib::util;
@@ -34,7 +33,7 @@ impl<'a> Container<'a> {
 
     pub fn contain(&self) {
         println!("Unshare namespace");
-        unshare_namespace();
+        unshare_namespaces();
 
         println!("Set hostname");
         set_hostname(self.container_id.clone());
@@ -53,34 +52,26 @@ impl<'a> Container<'a> {
         println!("Create mounts");
         create_mounts(container_rootfs.clone());
 
-        println!("Change root fs with chroot");
-        change_root(container_rootfs.clone());
-
         println!("Rearrange the mount namespace with pivot_root");
         pivot_root_fs(container_rootfs.clone());
-
-        println!("Change directory to new root");
-        change_dir("/");
-
-        println!("Unmount old root fs");
-        umount_old_fs();
 
         println!("Execute command");
         println!("{}", util::execute(self.command.clone()));
     }
 }
 
-fn unshare_namespace() {
+fn unshare_namespaces() {
     // Unshare the namespaces from the parent.pause program execution
+    util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
     // CLONE_NEWNS will initialize child with new mount namespace
     // with a copy of the namespace of the parent.
-    util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
-    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
+    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare CLONE_NEWNS");
+    // The UTS namespace allows per-container hostnames.
+    unshare(CloneFlags::CLONE_NEWUTS).expect("Failed to unshare CLONE_NEWUTS");
     util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
 }
 
 fn set_hostname(hostname: String) {
-    // The UTS namespace allows per-container hostnames.
     // Set the hostname to be the container ID.
     util::print_debug("Hostname before", util::execute(vec!["hostname"]));
     sethostname(hostname).expect("Failed to set hostname");
@@ -88,37 +79,34 @@ fn set_hostname(hostname: String) {
 }
 
 fn mount_bind_root() {
-    // Mount / as a private namespace to prevent host namespace pollution
-    // Bind mount directories recursively
+    // MS_PRIVATE will mount / as a private namespace to prevent host namespace pollution
+    // MS_REC will bind mount directories recursively
     let none: Option<&str> = None;
     let ns_flags = MsFlags::MS_PRIVATE | MsFlags::MS_REC;
     mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
 }
 
-fn change_root(container_rootfs: String) {
-    util::print_debug("/dev before", util::execute(vec!["ls", "-lh", "/dev"]));
-    chroot(Path::new(&container_rootfs.clone())).expect("Failed to chroot");
-    util::print_debug("/dev after", util::execute(vec!["ls", "-lh", "/dev"]));
-}
-
-fn umount_old_fs() {
-    // Perform a lazy unmount
-    let old_root = Path::new("/old_root");
-    umount2(old_root, MntFlags::MNT_DETACH).expect("Failed to unmount old root");
-    remove_dir_all(old_root).expect("Failed to remove old root");
-}
-
 fn pivot_root_fs(new_root: String) {
+    // pivot_root() moves the root filesystem of the calling process to the
+    // directory put_old and makes new_root the new root filesystem of the
+    // calling process.
+
+    // Create directory to put old root
     let old_root = Path::new(&new_root).join("old_root");
     create_dir_all(&old_root).expect("Failed to create old_root directory");
+
+    util::print_debug("/dev before", util::execute(vec!["ls", "-lh", "/dev"]));
     pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap())
         .expect("Failed to pivot_root");
-}
+    util::print_debug("/dev after", util::execute(vec!["ls", "-lh", "/dev"]));
 
-fn change_dir(new_dir: &str) {
-    util::print_debug("Current dir before", util::execute(vec!["pwd"]));
-    chdir(Path::new(new_dir)).expect("Failed to chdir");
-    util::print_debug("Current dir after", util::execute(vec!["pwd"]));
+    // pivot_root() may or may not affect its current working directory.
+    // It is therefore recommended to call chdir("/") immediately after pivot_root().
+    chdir(Path::new("/")).expect("Failed to chdir");
+
+    // MNT_DETACH will perform a lazy unmount
+    umount2("/old_root", MntFlags::MNT_DETACH).expect("Failed to unmount /old_root");
+    remove_dir_all("/old_root").expect("Failed to remove /old_root");
 }
 
 fn create_mounts(container_rootfs: String) {
@@ -133,9 +121,9 @@ fn create_mounts(container_rootfs: String) {
     let no_data: Option<&str> = None;
     let mode_755: Option<&str> = Some("mode=755");
     let mut tmpfs_flags = MsFlags::from_bits(0).unwrap();
-    // Ignore suid and sgid bits
+    // MS_NOSUID will ignore suid and sgid bits
     tmpfs_flags.toggle(MsFlags::MS_NOSUID);
-    // Always update last access time when files are accessed
+    // MS_STRICTATIME will always update last access time when files are accessed
     tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
 
     mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).expect(&format!(
@@ -212,7 +200,6 @@ fn create_container_rootfs(
             &format!("{}/{}", &container_dir, &container_id),
         ]),
     );
-    // Create image root
     // Image root is "lowerdir" (read-only)
     let image_root = create_image_root(image_name.clone(), image_dir.clone());
 
@@ -252,11 +239,12 @@ fn create_container_rootfs(
         image_root, container_cow_rw, container_cow_workdir,
     );
     let overlay_paths: Option<&str> = Some(&overlay_paths);
+    // MS_NODEV will isallow access to device special file
     mount(
         Some("overlay"),
         Path::new(&container_rootfs),
         Some("overlay"),
-        MsFlags::MS_NODEV, // Disallow access to device special files
+        MsFlags::MS_NODEV,
         overlay_paths,
     )
     .expect(&format!(
@@ -322,13 +310,12 @@ fn add_devices(container_rootfs: String) {
     for (device, kind, major, minor) in devices {
         let device_path = dev_path.join(device);
         if !device_path.exists() {
+            // Some devices may exist, i.e. /dev/null
             let device_path = device_path.to_str().unwrap();
             let perm = Mode::from_bits(0666).unwrap();
             let device = makedev(major, minor);
             mknod(device_path, kind, perm, device)
                 .expect(&format!("Failed to mknod device: {}", device_path));
-        } else {
-            println!("Device exists, skipping: {:?}", device_path)
         }
     }
 }

@@ -2,7 +2,6 @@ use std::env;
 use std::fs::File;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::{thread, time};
 use tar::{Archive, EntryType};
 use uuid::Uuid;
 
@@ -48,24 +47,6 @@ pub fn is_debug() -> bool {
         Some(_) => true,
         None => false,
     }
-}
-
-pub fn debug_pause() {
-    match env::var_os("DEBUG") {
-        Some(_) => {
-            println!("Pausing for 10s");
-            pause(10);
-            println!("Resuming");
-        }
-        None => (),
-    }
-}
-
-pub fn pause(secs: u64) {
-    let secs = time::Duration::from_secs(secs);
-    let now = time::Instant::now();
-    thread::sleep(secs);
-    assert!(now.elapsed() >= secs);
 }
 
 pub fn print_debug(msg1: &str, msg2: String) {
