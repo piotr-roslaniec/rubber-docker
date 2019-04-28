@@ -1,5 +1,4 @@
-use nix::unistd::fork;
-use nix::unistd::ForkResult;
+
 
 use crate::lib::core::Container;
 
@@ -30,12 +29,5 @@ impl<'a> Arguments<'a> {
 pub fn run(args: Arguments) {
     let container = Container::new(args);
     println!("Creating new container:\n{:?}", container);
-    match fork() {
-        Ok(ForkResult::Parent { child, .. }) => println!("Spawned new child with pid: {}", child),
-        Ok(ForkResult::Child) => {
-            println!("Running in a new child process");
-            container.contain();
-        }
-        Err(_) => println!("Fork failed"),
-    }
+    container.run()
 }

@@ -1,15 +1,14 @@
+use crate::lib::{cli, util};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::sched::{unshare, CloneFlags};
+use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
+use nix::sys::wait::{waitpid, WaitPidFlag};
 use nix::unistd::{chdir, pivot_root, sethostname};
 use std::char::from_digit;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::string::String;
-
-use crate::lib::cli;
-use crate::lib::util;
 
 #[derive(Debug)]
 pub struct Container<'a> {
@@ -31,10 +30,25 @@ impl<'a> Container<'a> {
         }
     }
 
-    pub fn contain(&self) {
-        println!("Unshare namespace");
-        unshare_namespaces();
+    pub fn run(&self) {
+        let flags = CloneFlags::CLONE_NEWNS | // get your own copy of mount namespace
+        CloneFlags::CLONE_NEWPID | // get new PID namespace
+        CloneFlags::CLONE_NEWUTS; // get your own copy of UNIX Time Sharing namespace
+        const STACK_SIZE: usize = 1024 * 1024;
+        let ref mut stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
+        let callback = Box::new(|| self.contain());
 
+        util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
+        util::print_debug("Processes before", util::execute(vec!["ps", "aux"]));
+
+        let pid = clone(callback, stack, flags, None).expect("Failed to clone");
+        println!("Cloned child process with pid: {}", pid);
+        match waitpid(pid, Some(WaitPidFlag::WEXITED)) {
+            _ => println!("Child process exited"),
+        }
+    }
+
+    fn contain(&self) -> isize {
         println!("Set hostname");
         set_hostname(self.container_id.clone());
 
@@ -57,18 +71,12 @@ impl<'a> Container<'a> {
 
         println!("Execute command");
         println!("{}", util::execute(self.command.clone()));
-    }
-}
 
-fn unshare_namespaces() {
-    // Unshare the namespaces from the parent.pause program execution
-    util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
-    // CLONE_NEWNS will initialize child with new mount namespace
-    // with a copy of the namespace of the parent.
-    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare CLONE_NEWNS");
-    // The UTS namespace allows per-container hostnames.
-    unshare(CloneFlags::CLONE_NEWUTS).expect("Failed to unshare CLONE_NEWUTS");
-    util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
+        util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
+        util::print_debug("Processes after", util::execute(vec!["ps", "aux"]));
+
+        return 0x0;
+    }
 }
 
 fn set_hostname(hostname: String) {
