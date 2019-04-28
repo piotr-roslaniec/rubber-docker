@@ -12,41 +12,70 @@ use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::unistd::chdir;
 use nix::unistd::pivot_root;
 
+use crate::lib::cli;
 use crate::lib::util;
 
-pub fn contain(
+#[derive(Debug)]
+pub struct Container {
     image_name: String,
     image_dir: String,
     container_dir: String,
     command: Vec<String>,
     container_id: String,
-) {
-    unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
 
-    let none: Option<&str> = None;
-    let mut ns_flags = MsFlags::from_bits(0).unwrap();
-    // Mount as private namespace to prevent host namespace pollution
-    ns_flags.toggle(MsFlags::MS_PRIVATE);
-    // Bind mount directories recursively
-    ns_flags.toggle(MsFlags::MS_REC);
-    mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
+}
 
-    let container_rootfs =
-        create_container_rootfs(container_id.clone(), container_dir, image_name, image_dir);
-    create_mounts(container_rootfs.clone());
-    add_devices(container_rootfs.clone());
+impl Container {
+    pub fn new(args: cli::Arguments) -> Container {
+        Container {
+            image_name: args.image_name,
+            image_dir: args.image_dir,
+            container_dir: args.container_dir,
+            command: args.command,
+            container_id: util::uuid(),
+        }
+    }
 
-    let old_root = Path::new(&container_rootfs).join("old-root");
-    create_dir_all(old_root).expect("Failed to create old-root directory");
-    pivot_root(Path::new(&container_rootfs.clone()), Path::new("/")).expect("Failed to pivot_root");
+    pub fn get_container_id(&self) -> &String {
+        &self.container_dir
+    }
 
-    chdir(Path::new("/")).expect("Failed to chdir");
+    pub fn contain(&self) {
+        // Unshare the namespaces from the parent.
+        // CLONE_NEWNS will initialize child with new mount namespace
+        // with a copy of the namespace of the parent.
+        unshare(CloneFlags::CLONE_NEWNS).expect("Failed to unshare");
 
-    // Perform a lazy unmount
-    umount2(Path::new("/old-root"), MntFlags::MNT_DETACH).expect("Failed to unmount old root");
-    remove_dir_all(Path::new("/old-root")).expect("Failed to remove old root");
+        let none: Option<&str> = None;
+        let mut ns_flags = MsFlags::from_bits(0).unwrap();
+        // Mount as private namespace to prevent host namespace pollution
+        ns_flags.toggle(MsFlags::MS_PRIVATE);
+        // Bind mount directories recursively
+        ns_flags.toggle(MsFlags::MS_REC);
+        mount(none, Path::new("/"), none, ns_flags, none).expect("Failed to mount at new root");
 
-    execute(command);
+        let container_rootfs = create_container_rootfs(
+            self.container_id.clone(),
+            self.container_dir.clone(),
+            self.image_name.clone(),
+            self.image_dir.clone(),
+        );
+        create_mounts(container_rootfs.clone());
+        add_devices(container_rootfs.clone());
+
+        let old_root = Path::new(&container_rootfs).join("old-root");
+        create_dir_all(old_root).expect("Failed to create old-root directory");
+        pivot_root(Path::new(&container_rootfs.clone()), Path::new("/"))
+            .expect("Failed to pivot_root");
+
+        chdir(Path::new("/")).expect("Failed to chdir");
+
+        // Perform a lazy unmount
+        umount2(Path::new("/old-root"), MntFlags::MNT_DETACH).expect("Failed to unmount old root");
+        remove_dir_all(Path::new("/old-root")).expect("Failed to remove old root");
+
+        execute(self.command.clone());
+    }
 }
 
 fn execute(command: Vec<String>) -> ExitStatus {
