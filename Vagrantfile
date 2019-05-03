@@ -17,7 +17,7 @@ Vagrant.configure("2") do |config|
     sudo apt install -y tree
   SHELL
 
-  config.vm.provision "file", source: "~/rdocker/images/ubuntu.tar", destination: "/tmp/rdocker/images/ubuntu.tar"
+  config.vm.provision "file", source: "~/rdocker/images", destination: "/tmp/rdocker/images"
 
   config.vm.synced_folder '.', '/home/vagrant/rubber-docker'
 

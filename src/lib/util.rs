@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::File;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::str::FromStr;
 use tar::{Archive, EntryType};
 use uuid::Uuid;
@@ -33,10 +33,9 @@ pub fn untar(image_path: String, dest: String) {
 pub fn execute(command: Vec<&str>) -> String {
     let child = Command::new(&command[0])
         .args(&command[1..])
-        .stdout(Stdio::piped())
         .spawn()
-        .expect("Failed to execute child");
-    let output = child.wait_with_output().expect("Failed to wait on child");
+        .expect(&format!("Failed to execute command: {:?}", command));
+    let output = child.wait_with_output().expect("Failed to wait on command");
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout).to_string()
 }
