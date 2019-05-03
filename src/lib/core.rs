@@ -33,13 +33,15 @@ impl<'a> Container<'a> {
     pub fn run(&self) {
         let flags = CloneFlags::CLONE_NEWNS | // get your own copy of mount namespace
         CloneFlags::CLONE_NEWPID | // get new PID namespace
-        CloneFlags::CLONE_NEWUTS; // get your own copy of UNIX Time Sharing namespace
+        CloneFlags::CLONE_NEWUTS | // get your own copy of UNIX Time Sharing namespace
+        CloneFlags::CLONE_NEWNET; // get your own network namespace
         const STACK_SIZE: usize = 1024 * 1024;
         let ref mut stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
         let callback = Box::new(|| self.contain());
 
         util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
         util::print_debug("Processes before", util::execute(vec!["ps", "aux"]));
+        util::print_debug("Network before", util::execute(vec!["ip", "a"]));
 
         let pid = clone(callback, stack, flags, None).expect("Failed to clone");
         println!("Cloned child process with pid: {}", pid);
@@ -74,6 +76,7 @@ impl<'a> Container<'a> {
 
         util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
         util::print_debug("Processes after", util::execute(vec!["ps", "aux"]));
+        util::print_debug("Network after", util::execute(vec!["ip", "a"]));
 
         return 0x0;
     }
