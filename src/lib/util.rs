@@ -30,14 +30,23 @@ pub fn untar(image_path: String, dest: String) {
     }
 }
 
-pub fn execute(command: Vec<&str>) -> String {
-    let child = Command::new(&command[0])
+pub fn execute_with_output(command: Vec<&str>) -> String {
+    let output = Command::new(&command[0])
         .args(&command[1..])
-        .spawn()
+        .output()
         .expect(&format!("Failed to execute command: {:?}", command));
-    let output = child.wait_with_output().expect("Failed to wait on command");
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+pub fn execute_interactive(command: Vec<&str>) {
+    Command::new(&command[0])
+        .args(&command[1..])
+        .env_clear()
+        .spawn()
+        .expect(&format!("Failed to execute command: {:?}", command))
+        .wait()
+        .unwrap();
 }
 
 pub fn is_debug() -> bool {

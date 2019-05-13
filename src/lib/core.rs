@@ -2,13 +2,15 @@ use crate::lib::{cli, util};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
-use nix::sys::wait::{waitpid, WaitPidFlag};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{chdir, pivot_root, sethostname};
 use std::char::from_digit;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::string::String;
+use std::thread;
+use std::time;
 
 #[derive(Debug)]
 pub struct Container<'a> {
@@ -32,21 +34,41 @@ impl<'a> Container<'a> {
 
     pub fn run(&self) {
         let flags = CloneFlags::CLONE_NEWNS | // get your own copy of mount namespace
-        CloneFlags::CLONE_NEWPID | // get new PID namespace
         CloneFlags::CLONE_NEWUTS | // get your own copy of UNIX Time Sharing namespace
-        CloneFlags::CLONE_NEWNET; // get your own network namespace
+        CloneFlags::CLONE_NEWNET | // get your own network namespace
+        CloneFlags::CLONE_NEWPID; // get new PID namespace
+
         const STACK_SIZE: usize = 1024 * 1024;
         let ref mut stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
         let callback = Box::new(|| self.contain());
 
-        util::print_debug("Namespaces before", util::execute(vec!["lsns"]));
-        util::print_debug("Processes before", util::execute(vec!["ps", "aux"]));
-        util::print_debug("Network before", util::execute(vec!["ip", "a"]));
+        util::print_debug("Namespaces before", util::execute_with_output(vec!["lsns"]));
+        util::print_debug(
+            "Processes before",
+            util::execute_with_output(vec!["ps", "aux"]),
+        );
+        util::print_debug("Network before", util::execute_with_output(vec!["ip", "a"]));
 
         let pid = clone(callback, stack, flags, None).expect("Failed to clone");
         println!("Cloned child process with pid: {}", pid);
-        match waitpid(pid, Some(WaitPidFlag::WEXITED)) {
-            _ => println!("Child process exited"),
+
+        thread::sleep(time::Duration::from_secs(3));
+        match waitpid(pid, Some(<WaitPidFlag>::__WCLONE)) {
+            Ok(WaitStatus::Exited(pid, status)) => {
+                println!("Child process (pid {}) EXITED with status: {}", pid, status)
+            }
+            Ok(WaitStatus::Signaled(pid, signal, _coredump)) => println!(
+                "Child process (pid {}) SIGNALED with signal: {}",
+                pid, signal
+            ),
+            Ok(WaitStatus::Stopped(pid, signal)) => println!(
+                "Child process (pid {}) STOPPED with signal: {}",
+                pid, signal
+            ),
+            Ok(WaitStatus::Continued(pid)) => println!("Child process (pid {}) CONTINUED.", pid),
+            Ok(WaitStatus::StillAlive) => println!("Child process process is still alive"),
+            Ok(_) => println!("Unhandled waitpid result, skipping"),
+            Err(e) => println!("Failed to waitpid: {}", e),
         }
     }
 
@@ -71,22 +93,31 @@ impl<'a> Container<'a> {
         println!("Rearrange the mount namespace with pivot_root");
         pivot_root_fs(container_rootfs.clone());
 
+        util::print_debug("Namespaces after", util::execute_with_output(vec!["lsns"]));
+        util::print_debug(
+            "Processes after",
+            util::execute_with_output(vec!["ps", "aux"]),
+        );
+        util::print_debug("Network after", util::execute_with_output(vec!["ip", "a"]));
+
         println!("Execute command");
-        println!("{}", util::execute(self.command.clone()));
+        util::execute_interactive(self.command.clone());
 
-        util::print_debug("Namespaces after", util::execute(vec!["lsns"]));
-        util::print_debug("Processes after", util::execute(vec!["ps", "aux"]));
-        util::print_debug("Network after", util::execute(vec!["ip", "a"]));
-
-        return 0x0;
+        return 2; // return sucess code from child process
     }
 }
 
 fn set_hostname(hostname: String) {
     // Set the hostname to be the container ID.
-    util::print_debug("Hostname before", util::execute(vec!["hostname"]));
+    util::print_debug(
+        "Hostname before",
+        util::execute_with_output(vec!["hostname"]),
+    );
     sethostname(hostname).expect("Failed to set hostname");
-    util::print_debug("Hostname after", util::execute(vec!["hostname"]));
+    util::print_debug(
+        "Hostname after",
+        util::execute_with_output(vec!["hostname"]),
+    );
 }
 
 fn mount_bind_root() {
@@ -106,10 +137,16 @@ fn pivot_root_fs(new_root: String) {
     let old_root = Path::new(&new_root).join("old_root");
     create_dir_all(&old_root).expect("Failed to create old_root directory");
 
-    util::print_debug("/dev before", util::execute(vec!["ls", "-lh", "/dev"]));
+    util::print_debug(
+        "/dev before",
+        util::execute_with_output(vec!["ls", "-lh", "/dev"]),
+    );
     pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap())
         .expect("Failed to pivot_root");
-    util::print_debug("/dev after", util::execute(vec!["ls", "-lh", "/dev"]));
+    util::print_debug(
+        "/dev after",
+        util::execute_with_output(vec!["ls", "-lh", "/dev"]),
+    );
 
     // pivot_root() may or may not affect its current working directory.
     // It is therefore recommended to call chdir("/") immediately after pivot_root().
@@ -121,7 +158,10 @@ fn pivot_root_fs(new_root: String) {
 }
 
 fn create_mounts(container_rootfs: String) {
-    util::print_debug("Mounts before", util::execute(vec!["findmnt", "-l"]));
+    util::print_debug(
+        "Mounts before",
+        util::execute_with_output(vec!["findmnt", "-l"]),
+    );
 
     let root = Path::new(&container_rootfs);
     let proc_guest = root.join("proc");
@@ -157,7 +197,10 @@ fn create_mounts(container_rootfs: String) {
         &dev_guest.to_str().unwrap()
     ));
     add_devices(container_rootfs.clone());
-    util::print_debug("Mounts after", util::execute(vec!["findmnt", "-l"]));
+    util::print_debug(
+        "Mounts after",
+        util::execute_with_output(vec!["findmnt", "-l"]),
+    );
 }
 
 fn get_image_path(image_name: String, image_dir: String) -> String {
@@ -203,7 +246,7 @@ fn create_container_rootfs(
     // Create container root filesystem as overlay CoW filesystem
     util::print_debug(
         "Container dir before:",
-        util::execute(vec![
+        util::execute_with_output(vec![
             "tree",
             "-L",
             "2",
@@ -264,7 +307,7 @@ fn create_container_rootfs(
     ));
     util::print_debug(
         "Container dir after:",
-        util::execute(vec![
+        util::execute_with_output(vec![
             "tree",
             "-d",
             "-L",
