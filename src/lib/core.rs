@@ -4,7 +4,6 @@ use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{chdir, pivot_root, sethostname};
-use std::char::from_digit;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -51,6 +50,7 @@ impl<'a> Container<'a> {
 
         let pid = clone(callback, stack, flags, None).expect("Failed to clone");
         println!("Cloned child process with pid: {}", pid);
+        util::write_pid(pid);
 
         thread::sleep(time::Duration::from_secs(3));
         match waitpid(pid, Some(<WaitPidFlag>::__WCLONE)) {
@@ -340,8 +340,7 @@ fn add_devices(container_rootfs: String) {
         &devpts_path.to_str().unwrap()
     ));
     for (i, device) in vec!["stdin", "stdout", "stderr"].iter().enumerate() {
-        let mut dev_num = String::from("");
-        dev_num.insert(0, from_digit(i as u32, 10).unwrap());
+        let dev_num = i.to_string();
         let source = Path::new("/proc/self/fd").join(dev_num);
         let dest = Path::new(&container_rootfs).join("dev").join(device);
         symlink(&source, &dest).expect(&format!(

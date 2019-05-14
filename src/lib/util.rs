@@ -1,5 +1,8 @@
 use std::env;
+use std::error::Error;
 use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use tar::{Archive, EntryType};
@@ -62,4 +65,25 @@ pub fn print_debug(prefix: &str, data: String) {
         let data = data.join("\n");
         println!("=== {} =============\n{}\n", prefix.trim(), data.trim());
     }
+}
+
+pub fn write_to_file(text: &str, filename: &str) {
+    let path = Path::new(filename);
+    let display = path.display();
+
+    let mut file = match File::create(&path) {
+        Err(why) => panic!("couldn't create {}: {}", display, why.description()),
+        Ok(file) => file,
+    };
+
+    match file.write_all(text.as_bytes()) {
+        Err(why) => panic!("couldn't write to {}: {}", display, why.description()),
+        Ok(_) => println!("successfully wrote to {}", display),
+    }
+}
+
+pub fn write_pid(pid: nix::unistd::Pid) {
+    let pid_file = "container.pid";
+    let pid = pid.as_raw().to_string();
+    write_to_file(&pid, pid_file);
 }
