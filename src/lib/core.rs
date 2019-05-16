@@ -73,6 +73,7 @@ impl<'a> Container<'a> {
     }
 
     fn contain(&self) -> isize {
+        util::write_container_id(self.container_id.clone());
         println!("Set hostname");
         set_hostname(self.container_id.clone());
 
@@ -100,6 +101,8 @@ impl<'a> Container<'a> {
         );
         util::print_debug("Network after", util::execute_with_output(vec!["ip", "a"]));
 
+        set_dns();
+
         println!("Execute command");
         util::execute_interactive(self.command.clone());
 
@@ -117,6 +120,18 @@ fn set_hostname(hostname: String) {
     util::print_debug(
         "Hostname after",
         util::execute_with_output(vec!["hostname"]),
+    );
+}
+
+fn set_dns() {
+    util::print_debug(
+        "/etc/resolv.conf before",
+        util::execute_with_output(vec!["cat", "/etc/resolv.conf"]),
+    );
+    util::write_to_file("nameserver 8.8.8.8", "/etc/resolv.conf");
+    util::print_debug(
+        "/etc/resolv.conf after",
+        util::execute_with_output(vec!["cat", "/etc/resolv.conf"]),
     );
 }
 

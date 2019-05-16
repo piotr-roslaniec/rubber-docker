@@ -83,7 +83,10 @@ pub fn write_to_file(text: &str, filename: &str) {
 }
 
 pub fn write_pid(pid: nix::unistd::Pid) {
-    let pid_file = "container.pid";
     let pid = pid.as_raw().to_string();
-    write_to_file(&pid, pid_file);
+    write_to_file(&pid, "container.pid");
+}
+
+pub fn write_container_id(cid: String) {
+    write_to_file(&cid, "container.cid");
 }
