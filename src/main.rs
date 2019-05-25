@@ -1,54 +1,88 @@
-extern crate clap;
+#[macro_use]
+extern crate structopt;
 
-use std::str::FromStr;
+use structopt::StructOpt;
 
-use clap::{App, Arg, SubCommand};
-
-use lib::cli;
+use crate::lib::core::Container;
 
 mod lib;
 
+#[derive(Debug, StructOpt)]
+pub struct Opt {
+    #[structopt(
+        long = "image-dir",
+        default_value = "/tmp/rdocker/images",
+        help = "Directory to store unpacked images."
+    )]
+    pub image_dir: String,
+
+    #[structopt(
+        long = "container-dir",
+        default_value = "/tmp/rdocker/containers",
+        help = "Directory to store containers."
+    )]
+    pub container_dir: String,
+
+    #[structopt(subcommand)]
+    subcommand: Option<Subcommand>,
+}
+
+#[derive(Debug, StructOpt)]
+enum Subcommand {
+    #[structopt(name = "run", help = "Run a container.")]
+    Run {
+        #[structopt(long = "image-name", help = "Name of image to be used.")]
+        image_name: String,
+
+        #[structopt(long = "command", help = "Command to be executed")]
+        command: Vec<String>,
+
+        #[structopt(
+            long = "memory",
+            default_value = "1G",
+            help = "Memory limit in bytes. Use suffixes to represent units (k, m, g)."
+        )]
+        memory: String,
+
+        #[structopt(
+            long = "memory-swap",
+            default_value = "-1",
+            help = "A positive integer equal to memory plus swap. Specify -1 to enable unlimited swap."
+        )]
+        memory_swap: i64,
+
+        #[structopt(
+            long = "cpu-shares",
+            default_value = "0",
+            help = "CPU shares (relative weight)."
+        )]
+        cpu_shares: i64,
+    },
+}
+
 fn main() {
-    let matches = App::new("rubber-docker")
-        .version("1.0")
-        .author("Piotr Roslaniec <p.roslaniec@gmail.com>")
-        .about("rubber-docker implemented in Rust")
-        .subcommand(
-            SubCommand::with_name("run")
-                .about("run an image")
-                .arg_from_usage("--image-name=[PATH] 'Image to unpack'")
-                .arg_from_usage("--image-dir=[PATH] 'Directory to unpack image'")
-                .arg_from_usage("--container-dir=[PATH] 'Containers directory'")
-                .arg(
-                    Arg::with_name("command")
-                        .long("command")
-                        .short("c")
-                        .required(true)
-                        .allow_hyphen_values(true)
-                        .min_values(1)
-                        .help("Command to be executed"),
-                ),
-        )
-        .get_matches();
+    let opt = Opt::from_args();
+    println!("{:?}", opt);
 
-    let default_image = "ubuntu";
-    let default_image_dir = "/tmp/rdocker/images";
-    let default_container_dir = "/tmp/rdocker/containers";
-
-    if let Some(matches) = matches.subcommand_matches("run") {
-        let image_name = String::from_str(matches.value_of("image-name").unwrap_or(default_image))
-            .expect("Failed to parse str");
-        let image_dir =
-            String::from_str(matches.value_of("image-dir").unwrap_or(&default_image_dir))
-                .expect("Failed to parse str");
-        let container_dir = String::from_str(
-            matches
-                .value_of("container-dir")
-                .unwrap_or(&default_container_dir),
-        )
-        .expect("Failed to parse str");
-        let command: Vec<&str> = matches.values_of("command").unwrap().collect();
-        let args = cli::Arguments::new(image_name, image_dir, container_dir, command);
-        cli::run(args);
+    match opt.subcommand {
+        Some(Subcommand::Run {
+            image_name,
+            command,
+            memory,
+            memory_swap,
+            cpu_shares,
+        }) => {
+            let container = Container::new(
+                image_name,
+                opt.image_dir,
+                opt.container_dir,
+                command,
+                memory,
+                memory_swap,
+                cpu_shares,
+            );
+            container.run();
+        }
+        _ => (),
     }
 }

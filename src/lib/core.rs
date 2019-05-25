@@ -1,4 +1,4 @@
-use crate::lib::{cli, util};
+use crate::lib::util;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
@@ -12,22 +12,36 @@ use std::thread;
 use std::time;
 
 #[derive(Debug)]
-pub struct Container<'a> {
+pub struct Container {
     image_name: String,
     image_dir: String,
     container_dir: String,
-    command: Vec<&'a str>,
+    command: Vec<String>,
     container_id: String,
+    memory: String,
+    memory_swap: i64,
+    cpu_shares: i64,
 }
 
-impl<'a> Container<'a> {
-    pub fn new(args: cli::Arguments) -> Container {
+impl Container {
+    pub fn new(
+        image_name: String,
+        image_dir: String,
+        container_dir: String,
+        command: Vec<String>,
+        memory: String,
+        memory_swap: i64,
+        cpu_shares: i64,
+    ) -> Container {
         Container {
-            image_name: args.image_name,
-            image_dir: args.image_dir,
-            container_dir: args.container_dir,
-            command: args.command,
+            image_name,
+            image_dir,
+            container_dir,
+            command,
             container_id: util::uuid(),
+            memory,
+            memory_swap,
+            cpu_shares,
         }
     }
 

@@ -42,7 +42,7 @@ pub fn execute_with_output(command: Vec<&str>) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-pub fn execute_interactive(command: Vec<&str>) {
+pub fn execute_interactive(command: Vec<String>) {
     Command::new(&command[0])
         .args(&command[1..])
         .env_clear()
