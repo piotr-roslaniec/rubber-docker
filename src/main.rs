@@ -12,14 +12,14 @@ pub struct Opt {
     #[structopt(
         long = "image-dir",
         default_value = "/tmp/rdocker/images",
-        help = "Directory to store unpacked images."
+        help = "Directory to store unpacked images"
     )]
     pub image_dir: String,
 
     #[structopt(
         long = "container-dir",
         default_value = "/tmp/rdocker/containers",
-        help = "Directory to store containers."
+        help = "Directory to store containers"
     )]
     pub container_dir: String,
 
@@ -29,9 +29,9 @@ pub struct Opt {
 
 #[derive(Debug, StructOpt)]
 enum Subcommand {
-    #[structopt(name = "run", help = "Run a container.")]
+    #[structopt(name = "run", help = "Run a container")]
     Run {
-        #[structopt(long = "image-name", help = "Name of image to be used.")]
+        #[structopt(long = "image-name", help = "Name of image to be used")]
         image_name: String,
 
         #[structopt(long = "command", help = "Command to be executed")]
@@ -40,23 +40,29 @@ enum Subcommand {
         #[structopt(
             long = "memory",
             default_value = "1G",
-            help = "Memory limit in bytes. Use suffixes to represent units (k, m, g)."
+            help = "Memory limit in bytes. Use suffixes to represent units (k, m, g)"
         )]
         memory: String,
 
         #[structopt(
             long = "memory-swap",
             default_value = "-1",
-            help = "A positive integer equal to memory plus swap. Specify -1 to enable unlimited swap."
+            help = "A positive integer equal to memory plus swap. Specify -1 to enable unlimited swap"
         )]
         memory_swap: i32,
 
         #[structopt(
             long = "cpu-shares",
             default_value = "0",
-            help = "CPU shares (relative weight)."
+            help = "CPU shares (relative weight)"
         )]
         cpu_shares: i32,
+
+        #[structopt(long = "uid", default_value = "0", help = "User id")]
+        uid: u32,
+
+        #[structopt(long = "gid", default_value = "0", help = "Group id")]
+        gid: u32,
     },
 }
 
@@ -71,6 +77,8 @@ fn main() {
             memory,
             memory_swap,
             cpu_shares,
+            uid,
+            gid,
         }) => {
             let container = Container::new(
                 image_name,
@@ -80,6 +88,8 @@ fn main() {
                 memory,
                 memory_swap,
                 cpu_shares,
+                uid,
+                gid,
             );
             container.run();
         }

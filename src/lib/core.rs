@@ -6,7 +6,7 @@ use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{chdir, getpid, pivot_root, sethostname};
+use nix::unistd::{chdir, getpid, pivot_root, setgid, sethostname, setuid, Gid, Uid};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -24,6 +24,8 @@ pub struct Container {
     memory: String,
     memory_swap: i32,
     cpu_shares: i32,
+    uid: u32,
+    gid: u32,
 }
 
 impl Container {
@@ -35,6 +37,8 @@ impl Container {
         memory: String,
         memory_swap: i32,
         cpu_shares: i32,
+        uid: u32,
+        gid: u32,
     ) -> Container {
         Container {
             image_name,
@@ -45,6 +49,8 @@ impl Container {
             memory,
             memory_swap,
             cpu_shares,
+            uid,
+            gid,
         }
     }
 
@@ -122,6 +128,9 @@ impl Container {
         print_debug("Network after", execute_with_output(vec!["ip", "a"]));
 
         set_dns();
+
+        setgid(Gid::from_raw(self.gid)).expect("Failed to set group id");
+        setuid(Uid::from_raw(self.uid)).expect("Failed to set user id");
 
         println!("Execute command");
         execute_interactive(self.command.clone());
