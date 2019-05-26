@@ -49,14 +49,14 @@ enum Subcommand {
             default_value = "-1",
             help = "A positive integer equal to memory plus swap. Specify -1 to enable unlimited swap."
         )]
-        memory_swap: i64,
+        memory_swap: i32,
 
         #[structopt(
             long = "cpu-shares",
             default_value = "0",
             help = "CPU shares (relative weight)."
         )]
-        cpu_shares: i64,
+        cpu_shares: i32,
     },
 }
 

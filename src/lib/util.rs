@@ -67,7 +67,7 @@ pub fn print_debug(prefix: &str, data: String) {
     }
 }
 
-pub fn write_to_file(text: &str, filename: &str) {
+pub fn write_to_file(filename: &str, text: &str) {
     let path = Path::new(filename);
     let display = path.display();
 
@@ -84,9 +84,9 @@ pub fn write_to_file(text: &str, filename: &str) {
 
 pub fn write_pid(pid: nix::unistd::Pid) {
     let pid = pid.as_raw().to_string();
-    write_to_file(&pid, "container.pid");
+    write_to_file("container.pid", &pid);
 }
 
 pub fn write_container_id(cid: String) {
-    write_to_file(&cid, "container.cid");
+    write_to_file("container.cid", &cid);
 }

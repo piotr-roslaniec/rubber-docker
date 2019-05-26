@@ -1,9 +1,12 @@
-use crate::lib::util;
+use crate::lib::util::{
+    execute_interactive, execute_with_output, print_debug, untar, uuid, write_container_id,
+    write_pid, write_to_file,
+};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{clone, CloneFlags};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{chdir, pivot_root, sethostname};
+use nix::unistd::{chdir, getpid, pivot_root, sethostname};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -19,8 +22,8 @@ pub struct Container {
     command: Vec<String>,
     container_id: String,
     memory: String,
-    memory_swap: i64,
-    cpu_shares: i64,
+    memory_swap: i32,
+    cpu_shares: i32,
 }
 
 impl Container {
@@ -30,15 +33,15 @@ impl Container {
         container_dir: String,
         command: Vec<String>,
         memory: String,
-        memory_swap: i64,
-        cpu_shares: i64,
+        memory_swap: i32,
+        cpu_shares: i32,
     ) -> Container {
         Container {
             image_name,
             image_dir,
             container_dir,
             command,
-            container_id: util::uuid(),
+            container_id: uuid(),
             memory,
             memory_swap,
             cpu_shares,
@@ -55,16 +58,13 @@ impl Container {
         let ref mut stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
         let callback = Box::new(|| self.contain());
 
-        util::print_debug("Namespaces before", util::execute_with_output(vec!["lsns"]));
-        util::print_debug(
-            "Processes before",
-            util::execute_with_output(vec!["ps", "aux"]),
-        );
-        util::print_debug("Network before", util::execute_with_output(vec!["ip", "a"]));
+        print_debug("Namespaces before", execute_with_output(vec!["lsns"]));
+        print_debug("Processes before", execute_with_output(vec!["ps", "aux"]));
+        print_debug("Network before", execute_with_output(vec!["ip", "a"]));
 
         let pid = clone(callback, stack, flags, None).expect("Failed to clone");
         println!("Cloned child process with pid: {}", pid);
-        util::write_pid(pid);
+        write_pid(pid);
 
         thread::sleep(time::Duration::from_secs(3));
         match waitpid(pid, Some(<WaitPidFlag>::__WCLONE)) {
@@ -87,7 +87,16 @@ impl Container {
     }
 
     fn contain(&self) -> isize {
-        util::write_container_id(self.container_id.clone());
+        write_container_id(self.container_id.clone());
+
+        let pid = getpid().as_raw();
+        set_cpu_cgroup(self.container_id.clone(), pid, self.cpu_shares);
+        set_memory_cgroup(
+            self.container_id.clone(),
+            self.memory.clone(),
+            self.memory_swap,
+        );
+
         println!("Set hostname");
         set_hostname(self.container_id.clone());
 
@@ -108,44 +117,64 @@ impl Container {
         println!("Rearrange the mount namespace with pivot_root");
         pivot_root_fs(container_rootfs.clone());
 
-        util::print_debug("Namespaces after", util::execute_with_output(vec!["lsns"]));
-        util::print_debug(
-            "Processes after",
-            util::execute_with_output(vec!["ps", "aux"]),
-        );
-        util::print_debug("Network after", util::execute_with_output(vec!["ip", "a"]));
+        print_debug("Namespaces after", execute_with_output(vec!["lsns"]));
+        print_debug("Processes after", execute_with_output(vec!["ps", "aux"]));
+        print_debug("Network after", execute_with_output(vec!["ip", "a"]));
 
         set_dns();
 
         println!("Execute command");
-        util::execute_interactive(self.command.clone());
+        execute_interactive(self.command.clone());
 
         return 2; // return sucess code from child process
     }
 }
 
-fn set_hostname(hostname: String) {
-    // Set the hostname to be the container ID.
-    util::print_debug(
-        "Hostname before",
-        util::execute_with_output(vec!["hostname"]),
-    );
-    sethostname(hostname).expect("Failed to set hostname");
-    util::print_debug(
-        "Hostname after",
-        util::execute_with_output(vec!["hostname"]),
+fn set_cpu_cgroup(container_id: String, pid: i32, cpu_shares: i32) {
+    let cgroup_cpu_dir = Path::new("/sys/fs/cgroup/cpu/rubber_docker").join(container_id);
+    let cpu_tasks_file = cgroup_cpu_dir.join("tasks");
+    let cpu_shares_file = cgroup_cpu_dir.join("cpu.shares");
+    create_dir_all(cgroup_cpu_dir).expect("Failed to create cgroup/cpu directory.");
+
+    write_to_file(cpu_tasks_file.to_str().unwrap(), pid.to_string().as_str());
+    write_to_file(
+        cpu_shares_file.to_str().unwrap(),
+        cpu_shares.to_string().as_str(),
     );
 }
 
+fn set_memory_cgroup(container_id: String, memory: String, memory_swap: i32) {
+    let cgroup_memory_dir = Path::new("/sys/fs/cgroup/memory/rubber_docker").join(container_id);
+    let memory_file = cgroup_memory_dir.join("memory.limit_in_bytes");
+    create_dir_all(cgroup_memory_dir).expect("Failed to create cgroup/memory directory.");
+
+    write_to_file(memory_file.to_str().unwrap(), memory.as_str());
+
+    // TODO: memory.memsw.limit_in_bytes file does not exist
+    // https://serverfault.com/questions/790318/cannot-enable-cgroup-enable-memory-swapaccount-1-on-gce-debian-jessie-instance
+    // let memory_swap_file = cgroup_memory_dir.join("memory.memsw.limit_in_bytes");
+    // write_to_file(
+    //     memory_swap_file.to_str().unwrap(),
+    //     memory_swap.to_string().as_str(),
+    // );
+}
+
+fn set_hostname(hostname: String) {
+    // Set the hostname to be the container ID.
+    print_debug("Hostname before", execute_with_output(vec!["hostname"]));
+    sethostname(hostname).expect("Failed to set hostname");
+    print_debug("Hostname after", execute_with_output(vec!["hostname"]));
+}
+
 fn set_dns() {
-    util::print_debug(
+    print_debug(
         "/etc/resolv.conf before",
-        util::execute_with_output(vec!["cat", "/etc/resolv.conf"]),
+        execute_with_output(vec!["cat", "/etc/resolv.conf"]),
     );
-    util::write_to_file("nameserver 8.8.8.8", "/etc/resolv.conf");
-    util::print_debug(
+    write_to_file("/etc/resolv.conf", "nameserver 8.8.8.8");
+    print_debug(
         "/etc/resolv.conf after",
-        util::execute_with_output(vec!["cat", "/etc/resolv.conf"]),
+        execute_with_output(vec!["cat", "/etc/resolv.conf"]),
     );
 }
 
@@ -166,16 +195,13 @@ fn pivot_root_fs(new_root: String) {
     let old_root = Path::new(&new_root).join("old_root");
     create_dir_all(&old_root).expect("Failed to create old_root directory");
 
-    util::print_debug(
+    print_debug(
         "/dev before",
-        util::execute_with_output(vec!["ls", "-lh", "/dev"]),
+        execute_with_output(vec!["ls", "-lh", "/dev"]),
     );
     pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap())
         .expect("Failed to pivot_root");
-    util::print_debug(
-        "/dev after",
-        util::execute_with_output(vec!["ls", "-lh", "/dev"]),
-    );
+    print_debug("/dev after", execute_with_output(vec!["ls", "-lh", "/dev"]));
 
     // pivot_root() may or may not affect its current working directory.
     // It is therefore recommended to call chdir("/") immediately after pivot_root().
@@ -187,10 +213,7 @@ fn pivot_root_fs(new_root: String) {
 }
 
 fn create_mounts(container_rootfs: String) {
-    util::print_debug(
-        "Mounts before",
-        util::execute_with_output(vec!["findmnt", "-l"]),
-    );
+    print_debug("Mounts before", execute_with_output(vec!["findmnt", "-l"]));
 
     let root = Path::new(&container_rootfs);
     let proc_guest = root.join("proc");
@@ -226,10 +249,7 @@ fn create_mounts(container_rootfs: String) {
         &dev_guest.to_str().unwrap()
     ));
     add_devices(container_rootfs.clone());
-    util::print_debug(
-        "Mounts after",
-        util::execute_with_output(vec!["findmnt", "-l"]),
-    );
+    print_debug("Mounts after", execute_with_output(vec!["findmnt", "-l"]));
 }
 
 fn get_image_path(image_name: String, image_dir: String) -> String {
@@ -252,7 +272,7 @@ fn create_image_root(image_name: String, image_dir: String) -> String {
         .to_owned();
     if !Path::new(&image_root).exists() {
         create_dir_all(&image_root).unwrap();
-        util::untar(image_path, image_root.clone());
+        untar(image_path, image_root.clone());
     }
     return image_root;
 }
@@ -273,9 +293,9 @@ fn create_container_rootfs(
     image_dir: String,
 ) -> String {
     // Create container root filesystem as overlay CoW filesystem
-    util::print_debug(
+    print_debug(
         "Container dir before:",
-        util::execute_with_output(vec![
+        execute_with_output(vec![
             "tree",
             "-L",
             "2",
@@ -334,9 +354,9 @@ fn create_container_rootfs(
         "Failed to create mount to target {}",
         &container_rootfs
     ));
-    util::print_debug(
+    print_debug(
         "Container dir after:",
-        util::execute_with_output(vec![
+        execute_with_output(vec![
             "tree",
             "-d",
             "-L",
