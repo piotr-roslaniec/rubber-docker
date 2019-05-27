@@ -11,8 +11,6 @@ use std::fs::{create_dir_all, remove_dir_all};
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::string::String;
-use std::thread;
-use std::time;
 
 #[derive(Debug)]
 pub struct Container {
@@ -61,7 +59,7 @@ impl Container {
         CloneFlags::CLONE_NEWPID; // get new PID namespace
 
         const STACK_SIZE: usize = 1024 * 1024;
-        let ref mut stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
+        let stack: &mut [u8; STACK_SIZE] = &mut [0; STACK_SIZE];
         let callback = Box::new(|| self.contain());
 
         print_debug("Namespaces before", execute_with_output(vec!["lsns"]));
@@ -72,7 +70,6 @@ impl Container {
         println!("Cloned child process with pid: {}", pid);
         write_pid(pid);
 
-        thread::sleep(time::Duration::from_secs(3));
         match waitpid(pid, Some(<WaitPidFlag>::__WCLONE)) {
             Ok(WaitStatus::Exited(pid, status)) => {
                 println!("Child process (pid {}) EXITED with status: {}", pid, status)
@@ -135,7 +132,7 @@ impl Container {
         println!("Execute command");
         execute_interactive(self.command.clone());
 
-        return 2; // return sucess code from child process
+        2 // return sucess code from child process
     }
 }
 
@@ -152,7 +149,7 @@ fn set_cpu_cgroup(container_id: String, pid: i32, cpu_shares: i32) {
     );
 }
 
-fn set_memory_cgroup(container_id: String, memory: String, memory_swap: i32) {
+fn set_memory_cgroup(container_id: String, memory: String, _memory_swap: i32) {
     let cgroup_memory_dir = Path::new("/sys/fs/cgroup/memory/rubber_docker").join(container_id);
     let memory_file = cgroup_memory_dir.join("memory.limit_in_bytes");
     create_dir_all(cgroup_memory_dir).expect("Failed to create cgroup/memory directory.");
@@ -238,14 +235,18 @@ fn create_mounts(container_rootfs: String) {
     // MS_STRICTATIME will always update last access time when files are accessed
     tmpfs_flags.toggle(MsFlags::MS_STRICTATIME);
 
-    mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).expect(&format!(
-        "Failed to create mount to target {}",
-        &proc_guest.to_str().unwrap()
-    ));
-    mount(Some("sysfs"), &sys_guest, Some("sysfs"), no_flags, no_data).expect(&format!(
-        "Failed to create mount to target {}",
-        &sys_guest.to_str().unwrap()
-    ));
+    mount(Some("proc"), &proc_guest, Some("proc"), no_flags, no_data).unwrap_or_else(|_| {
+        panic!(
+            "Failed to create mount to target {}",
+            &proc_guest.to_str().unwrap()
+        )
+    });
+    mount(Some("sysfs"), &sys_guest, Some("sysfs"), no_flags, no_data).unwrap_or_else(|_| {
+        panic!(
+            "Failed to create mount to target {}",
+            &proc_guest.to_str().unwrap()
+        )
+    });
     mount(
         Some("tmpfs"),
         &dev_guest,
@@ -253,10 +254,12 @@ fn create_mounts(container_rootfs: String) {
         tmpfs_flags,
         mode_755,
     )
-    .expect(&format!(
-        "Failed to create mount to target {}",
-        &dev_guest.to_str().unwrap()
-    ));
+    .unwrap_or_else(|_| {
+        panic!(
+            "Failed to create mount to target {}",
+            &proc_guest.to_str().unwrap()
+        )
+    });
     add_devices(container_rootfs.clone());
     print_debug("Mounts after", execute_with_output(vec!["findmnt", "-l"]));
 }
@@ -283,7 +286,7 @@ fn create_image_root(image_name: String, image_dir: String) -> String {
         create_dir_all(&image_root).unwrap();
         untar(image_path, image_root.clone());
     }
-    return image_root;
+    image_root
 }
 
 fn get_container_path(container_id: String, container_dir: String, subdir_name: String) -> String {
@@ -359,10 +362,7 @@ fn create_container_rootfs(
         MsFlags::MS_NODEV,
         overlay_paths,
     )
-    .expect(&format!(
-        "Failed to create mount to target {}",
-        &container_rootfs
-    ));
+    .unwrap_or_else(|_| panic!("Failed to create mount to target {}", &container_rootfs));
     print_debug(
         "Container dir after:",
         execute_with_output(vec![
@@ -374,7 +374,7 @@ fn create_container_rootfs(
             &format!("{}/{}", &container_dir, &container_id),
         ]),
     );
-    return container_rootfs;
+    container_rootfs
 }
 
 fn add_devices(container_rootfs: String) {
@@ -384,28 +384,30 @@ fn add_devices(container_rootfs: String) {
     if !devpts_path.exists() {
         create_dir_all(&devpts_path).expect("Failed to create /dev/pts directory");
     }
-    let no_flags = MsFlags::from_bits(0).unwrap();
     let no_data: Option<&str> = None;
     mount(
         Some("devpts"),
         &devpts_path,
         Some("devpts"),
-        no_flags,
+        MsFlags::from_bits(0).unwrap(),
         no_data,
     )
-    .expect(&format!(
-        "Failed to create mount to target {}",
-        &devpts_path.to_str().unwrap()
-    ));
-    for (i, device) in vec!["stdin", "stdout", "stderr"].iter().enumerate() {
-        let dev_num = i.to_string();
-        let source = Path::new("/proc/self/fd").join(dev_num);
+    .unwrap_or_else(|_| {
+        panic!(
+            "Failed to create mount to target {}",
+            &devpts_path.to_str().unwrap()
+        )
+    });
+    for (dev_num, device) in vec!["stdin", "stdout", "stderr"].iter().enumerate() {
+        let source = Path::new("/proc/self/fd").join(dev_num.to_string());
         let dest = Path::new(&container_rootfs).join("dev").join(device);
-        symlink(&source, &dest).expect(&format!(
-            "Failed to create symlink from {} to {}",
-            source.to_str().unwrap(),
-            dest.to_str().unwrap()
-        ));
+        symlink(&source, &dest).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create symlink from {} to {}",
+                source.to_str().unwrap(),
+                dest.to_str().unwrap()
+            )
+        });
     }
 
     // Add extra devices
@@ -423,10 +425,10 @@ fn add_devices(container_rootfs: String) {
         if !device_path.exists() {
             // Some devices may exist, i.e. /dev/null
             let device_path = device_path.to_str().unwrap();
-            let perm = Mode::from_bits(0666).unwrap();
+            let perm = Mode::from_bits(0o666).unwrap();
             let device = makedev(major, minor);
             mknod(device_path, kind, perm, device)
-                .expect(&format!("Failed to mknod device: {}", device_path));
+                .unwrap_or_else(|_| panic!("Failed to mknod device: {}", device_path));
         }
     }
 }

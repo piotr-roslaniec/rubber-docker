@@ -11,10 +11,7 @@ use uuid::Uuid;
 pub fn uuid() -> String {
     let mut buffer = Uuid::encode_buffer();
     let uuid = Uuid::new_v4().to_simple().encode_lower(&mut buffer);
-    match String::from_str(uuid) {
-        Ok(s) => s,
-        Err(_) => panic!("Failed to parse uuid str"),
-    }
+    String::from_str(uuid).unwrap()
 }
 
 pub fn untar(image_path: String, dest: String) {
@@ -37,7 +34,7 @@ pub fn execute_with_output(command: Vec<&str>) -> String {
     let output = Command::new(&command[0])
         .args(&command[1..])
         .output()
-        .expect(&format!("Failed to execute command: {:?}", command));
+        .unwrap_or_else(|_| panic!("Failed to execute command: {:?}", command));
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout).to_string()
 }
@@ -47,16 +44,13 @@ pub fn execute_interactive(command: Vec<String>) {
         .args(&command[1..])
         .env_clear()
         .spawn()
-        .expect(&format!("Failed to execute command: {:?}", command))
+        .unwrap_or_else(|_| panic!("Failed to execute command: {:?}", command))
         .wait()
         .unwrap();
 }
 
 pub fn is_debug() -> bool {
-    match env::var_os("DEBUG") {
-        Some(_) => true,
-        None => false,
-    }
+    env::var_os("DEBUG").is_some()
 }
 
 pub fn print_debug(prefix: &str, data: String) {

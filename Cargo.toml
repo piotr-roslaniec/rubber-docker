@@ -8,4 +8,4 @@ edition = "2018"
 structopt = "0.2.15"
 uuid = { version = "0.7", features = ["v4"] }
 tar = "0.4.22"
-nix = "0.13.0"
+nix = "0.14.0"
