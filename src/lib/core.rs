@@ -1,6 +1,6 @@
 use crate::lib::util::{
-    execute_interactive, execute_with_output, print_debug, untar, uuid, write_container_id,
-    write_pid, write_to_file,
+    execute_interactive, execute_with_output, print_debug, untar, uuid, write_container_id, write_pid,
+    write_to_file,
 };
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::{clone, CloneFlags};
@@ -74,14 +74,12 @@ impl Container {
             Ok(WaitStatus::Exited(pid, status)) => {
                 println!("Child process (pid {}) EXITED with status: {}", pid, status)
             }
-            Ok(WaitStatus::Signaled(pid, signal, _coredump)) => println!(
-                "Child process (pid {}) SIGNALED with signal: {}",
-                pid, signal
-            ),
-            Ok(WaitStatus::Stopped(pid, signal)) => println!(
-                "Child process (pid {}) STOPPED with signal: {}",
-                pid, signal
-            ),
+            Ok(WaitStatus::Signaled(pid, signal, _coredump)) => {
+                println!("Child process (pid {}) SIGNALED with signal: {}", pid, signal)
+            }
+            Ok(WaitStatus::Stopped(pid, signal)) => {
+                println!("Child process (pid {}) STOPPED with signal: {}", pid, signal)
+            }
             Ok(WaitStatus::Continued(pid)) => println!("Child process (pid {}) CONTINUED.", pid),
             Ok(WaitStatus::StillAlive) => println!("Child process process is still alive"),
             Ok(_) => println!("Unhandled waitpid result, skipping"),
@@ -94,11 +92,7 @@ impl Container {
 
         let pid = getpid().as_raw();
         set_cpu_cgroup(self.container_id.clone(), pid, self.cpu_shares);
-        set_memory_cgroup(
-            self.container_id.clone(),
-            self.memory.clone(),
-            self.memory_swap,
-        );
+        set_memory_cgroup(self.container_id.clone(), self.memory.clone(), self.memory_swap);
 
         println!("Set hostname");
         set_hostname(self.container_id.clone());
@@ -143,10 +137,7 @@ fn set_cpu_cgroup(container_id: String, pid: i32, cpu_shares: i32) {
     create_dir_all(cgroup_cpu_dir).expect("Failed to create cgroup/cpu directory.");
 
     write_to_file(cpu_tasks_file.to_str().unwrap(), pid.to_string().as_str());
-    write_to_file(
-        cpu_shares_file.to_str().unwrap(),
-        cpu_shares.to_string().as_str(),
-    );
+    write_to_file(cpu_shares_file.to_str().unwrap(), cpu_shares.to_string().as_str());
 }
 
 fn set_memory_cgroup(container_id: String, memory: String, _memory_swap: i32) {
@@ -201,12 +192,8 @@ fn pivot_root_fs(new_root: String) {
     let old_root = Path::new(&new_root).join("old_root");
     create_dir_all(&old_root).expect("Failed to create old_root directory");
 
-    print_debug(
-        "/dev before",
-        execute_with_output(vec!["ls", "-lh", "/dev"]),
-    );
-    pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap())
-        .expect("Failed to pivot_root");
+    print_debug("/dev before", execute_with_output(vec!["ls", "-lh", "/dev"]));
+    pivot_root(Path::new(&new_root.clone()), old_root.to_str().unwrap()).expect("Failed to pivot_root");
     print_debug("/dev after", execute_with_output(vec!["ls", "-lh", "/dev"]));
 
     // pivot_root() may or may not affect its current working directory.
@@ -247,14 +234,7 @@ fn create_mounts(container_rootfs: String) {
             &proc_guest.to_str().unwrap()
         )
     });
-    mount(
-        Some("tmpfs"),
-        &dev_guest,
-        Some("tmpfs"),
-        tmpfs_flags,
-        mode_755,
-    )
-    .unwrap_or_else(|_| {
+    mount(Some("tmpfs"), &dev_guest, Some("tmpfs"), tmpfs_flags, mode_755).unwrap_or_else(|_| {
         panic!(
             "Failed to create mount to target {}",
             &proc_guest.to_str().unwrap()
@@ -267,21 +247,13 @@ fn create_mounts(container_rootfs: String) {
 fn get_image_path(image_name: String, image_dir: String) -> String {
     let image_suffix = "tar".to_owned();
     let image = format!("{}.{}", image_name, image_suffix);
-    Path::new(&image_dir)
-        .join(image)
-        .to_str()
-        .unwrap()
-        .to_owned()
+    Path::new(&image_dir).join(image).to_str().unwrap().to_owned()
 }
 
 fn create_image_root(image_name: String, image_dir: String) -> String {
     let root_dir = format!("{}.root.d", image_name);
     let image_path = get_image_path(image_name.clone(), image_dir.clone());
-    let image_root = Path::new(&image_dir)
-        .join(root_dir)
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let image_root = Path::new(&image_dir).join(root_dir).to_str().unwrap().to_owned();
     if !Path::new(&image_root).exists() {
         create_dir_all(&image_root).unwrap();
         untar(image_path, image_root.clone());
@@ -319,21 +291,15 @@ fn create_container_rootfs(
     let image_root = create_image_root(image_name.clone(), image_dir.clone());
 
     // Create directories for copy-on-write ("upperdir"), overlay workdir and a mount point
-    let container_cow_rw = get_container_path(
-        container_id.clone(),
-        container_dir.clone(),
-        "cow_rw".to_owned(),
-    );
+    let container_cow_rw =
+        get_container_path(container_id.clone(), container_dir.clone(), "cow_rw".to_owned());
     let container_cow_workdir = get_container_path(
         container_id.clone(),
         container_dir.clone(),
         "cow_workdir".to_owned(),
     );
-    let container_rootfs = get_container_path(
-        container_id.clone(),
-        container_dir.clone(),
-        "rootfs".to_owned(),
-    );
+    let container_rootfs =
+        get_container_path(container_id.clone(), container_dir.clone(), "rootfs".to_owned());
 
     // Create directories for copy-on-write (upperdir), overlay workdir,
     // and a mount point
