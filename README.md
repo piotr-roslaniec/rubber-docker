@@ -1,8 +1,11 @@
-# rubber-docker, but in Rust
+# rubber-docker
+
+This repo contains [Docker From Scratch Workshop] implemented in Rust.
 
 ## Installation
 
-We use `vagrant-vbguest` to automatically provision Virtualbox Guest Additions to new VMs on Vagrant
+Make sure you have Vagrant installed.
+We use `vagrant-vbguest` to automatically provision Virtualbox Guest Additions to new VMs on Vagrant.
 
 ```bash
 vagrant plugin install vagrant-vbguest
@@ -12,22 +15,21 @@ vagrant plugin install vagrant-vbguest
 
 ## Development
 
-Download Docker image(s)
+Make images, create Vagrant VM and enter it:
 
 ```bash
-./save_image.sh
+./vagrant_remake.sh
 ```
 
-Start Vagrant VM
+If VM already exists:
 
 ```bash
-cd vm
 vagrant up
 vagrant ssh
 ```
 
-Run the rubber-docker
+Once inside VM, run `rubber-docker` with some default settings:
 
 ```bash
-./run.sh
+./rdocker.sh
 ```
