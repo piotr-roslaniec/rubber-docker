@@ -1,5 +1,7 @@
 # rubber-docker
 
+[![Build Status](https://travis-ci.com/piotr-roslaniec/rubber-docker.svg?token=xq82ysAPBVZXMF2RcZGq&branch=master)](https://travis-ci.com/piotr-roslaniec/rubber-docker)
+
 This repo contains [Docker From Scratch Workshop] implemented in Rust.
 
 ## Installation
