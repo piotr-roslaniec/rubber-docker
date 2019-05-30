@@ -1,8 +1,10 @@
 # Notes
 
-<https://unix.stackexchange.com/questions/457040/chroot-before-pivot-root-causes-busy-error>
+## Chroot & mount
 
-Mounting example
+[(Stackoverflow) chroot before pivot_root causes busy error](https://unix.stackexchange.com/questions/457040/chroot-before-pivot-root-causes-busy-error>)
+
+`mount` & `pivot_root` example
 
 ```bash
 root@vagrant:~# unshare -m
@@ -19,10 +21,9 @@ root@vagrant:/mnt#
 
 ## Namespaces
 
-CLONE_NEWNS will create with a copy of the namespace of the parent.
-CLONE_NEWUTS will create the process in a new UTS namespace, whose identifiers are initialized by duplicating the identifiers from the UTS namespace of the calling process.
-CLONE_NEWPID will create the process in a new PID namespace.
+[Part 4 - UTS Namespace](https://windsock.io/uts-namespace/>)
+[The Curious Case of Pid Namespaces](https://hackernoon.com/the-curious-case-of-pid-namespaces-1ce86b6bc900)
 
-<https://windsock.io/uts-namespace/>
+## Networking
 
-<https://hackernoon.com/the-curious-case-of-pid-namespaces-1ce86b6bc900>
+[Network namespaces](https://blogs.igalia.com/dpino/2016/04/10/network-namespaces/)

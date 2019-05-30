@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.com/piotr-roslaniec/rubber-docker.svg?token=xq82ysAPBVZXMF2RcZGq&branch=master)](https://travis-ci.com/piotr-roslaniec/rubber-docker)
 
-This repo contains [Docker From Scratch Workshop] implemented in Rust.
+This repo contains [Docker From Scratch Workshop](https://github.com/Fewbytes/rubber-docker) implemented in Rust.
 
 ## Installation
 
@@ -34,4 +34,10 @@ Once inside VM, run `rubber-docker` with some default settings:
 
 ```bash
 ./rdocker.sh
+```
+
+To set up Internet access run (from seperate terminal):
+
+```bash
+./set_netns.sh
 ```
